@@ -104,6 +104,15 @@ methods `should_inline`, `should_not_inline` and `try_to_inline`). A simplified 
   - The inlining depth is limited (9 by default, `MaxInlineLevel`).
   - No inlining is performed if the callsite method is already very large.
 
+  // this is not entirelly true. It uses multiple measures of `large`.
+  // inlining is performed twice. Once, on bytecode and that's the part that you've correctly covered,
+  // second time on the assembly. And size limits are different and measure different notions.
+  // InlineSmallCode option guards inining of assembly.
+  // neither of approaches is good:
+  //  - the problem with counting size of bytecode before inlining is that it counts unreachable code&gotos
+  //  - the problem with inlining assembly happens as it frequently has ridiculosly bad code(eg a lot of moving data around) in "slow paths" and
+          the size of slow path contributes to the measured size of method.
+
 The procedure is the same for C1 and C2, it uses the invocation counter that is also used for
 compilation decisions (previous section).
 
@@ -121,9 +130,19 @@ virtual methods that are not overridden.
 
 When the JVM loads a new class, a virtual method that was statically not overridden by CHA may get
 an override. All assembly code that made use of the now invalid assumption is discarded and the
+// the text reads as if the methods are executed twice. I'd rewrite as `the next execution of method will began in intepreter`
+// this leaves uncovered the question of `what happens if return address is in discarded code` but I believe it's fine.
 corresponding methods are executed again by the bytecode interpreter. This process is called
 deoptimization. In case a deoptimized method is currently being executed, control is passed to
 the interpreter by on-stack replacement.
+// AFAIK this is false... Please tell me if what I write below isn't true:
+// when breaking CHA assumption, VM will ask all threads to pause at safe poins.
+// JVM can recreate state of interpreter in every safe-point. If method happens to pause inside method whose code is
+// being discarded it will jump into interpreter
+
+// if the method is NOT being currenly executed, but some thread has instructuion inside it in return pointer
+// the method is filed with NO-OP and a special handler in the end that is able to jump to nearest safe-point.
+// AFAIK this has little if something to do with OSR.
 
 In addition to using CHA, the C2 compiler performs speculative inlining of virtual methods based on
 the type profiles gathered by the interpreter and the C1-generated assembly. If the receiver type
@@ -141,6 +160,7 @@ lookup is performed at runtime.
 Note that C2 performs other speculative optimizations than profile-based inlining, for example
 profile-based branch elimination.
 
+// The most important improvement that C2 has is actually a good register allocator. The one in C1 is "fast and dirty"
 
 ## Understanding the performance regression
 
